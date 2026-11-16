@@ -1,0 +1,4 @@
+mss>=10,<11
+rapidocr-onnxruntime==1.4.4
+onnxruntime>=1.20,<2
+numpy>=1.26,<3

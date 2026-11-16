@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+release/
+data/
+*.spec
+!启动.spec
+.qa/
+.idea/
+/CodePilot-source.zip

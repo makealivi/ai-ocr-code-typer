@@ -1,0 +1,1 @@
+"""CodePilot desktop companion."""
