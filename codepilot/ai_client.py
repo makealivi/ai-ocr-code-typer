@@ -42,7 +42,9 @@ def generate(profile, api_key, question):
         "model": profile["model"], "stream": False,
         "messages": [
             {"role": "system", "content": (
-                f"根据用户提供的编程题，输出使用 {profile['language']} 的完整可运行程序。"
+                f"根据用户提供的编程题，输出使用 {profile['language']} 的可提交代码。"
+                "先判断题型：函数题只实现题目要求的函数及必要的辅助定义，严格保持函数签名，"
+                "不要重复题目已提供的类型、裁判程序或 main；完整编程题返回完整可运行程序。"
                 "只输出源代码，不输出 Markdown 代码围栏、讲解或注释。"
                 "题目来自 OCR，请结合上下文识别字符；保留输入输出格式和题目约束。"
             )},

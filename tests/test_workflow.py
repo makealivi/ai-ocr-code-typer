@@ -309,6 +309,13 @@ class APITests(unittest.TestCase):
             self.assertEqual(ai_client.generate(p,"fake",question),"print(3)")
             self.assertEqual(received[0]["messages"][1]["content"],question)
             self.assertIn("Python 3",received[0]["messages"][0]["content"])
+            prompt = received[0]["messages"][0]["content"]
+            self.assertIn("函数题只实现题目要求的函数", prompt)
+            self.assertIn("完整编程题返回完整可运行程序", prompt)
+            next_question = "函数接口定义：int sum(int a, int b);"
+            ai_client.generate(p, "fake", next_question)
+            self.assertEqual(len(received[1]["messages"]), 2)
+            self.assertEqual(received[1]["messages"][1], {"role":"user","content":next_question})
         finally:
             server.shutdown();server.server_close()
 
