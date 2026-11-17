@@ -20,6 +20,7 @@ class Controller:
         self.phase = "idle"
         self.paused = False
         self.profile_name = ""
+        self.source = ""
         self.question = ""
         self.code = ""
         self.index = 0
@@ -36,7 +37,7 @@ class Controller:
             return {"phase": self.phase, "paused": self.paused, "profile": self.profile_name,
                     "question": self.question, "code": self.code, "index": self.index,
                     "total": len(self.code), "error": self.error, "round": self.round_id,
-                    "history": list(self.history)}
+                    "history": list(self.history), "source": self.source}
 
     def _log(self, message):
         self.history.appendleft({"time": time.strftime("%H:%M:%S"), "message": message})
@@ -60,39 +61,58 @@ class Controller:
                 break
 
     def capture(self, profile_id, hwnd, profile=None):
+        self.start_round(profile_id, hwnd, "screenshot", profile)
+
+    def use_clipboard(self, profile_id, hwnd, profile=None):
+        self.start_round(profile_id, hwnd, "clipboard", profile)
+
+    def start_round(self, profile_id, hwnd, source, profile=None):
         if profile is None:
             profile = next(p for p in self.config.get()["profiles"] if p["id"] == profile_id)
         profile = copy.deepcopy(profile)
         with self.lock:
+            if self.closed:
+                return
             self.round_id += 1
             token = self.round_id
             self._invalidate_output()
-            self.phase = "capture"
+            self.source = source
+            self.phase = "reading_clipboard" if source == "clipboard" else "capture"
             self.paused = False
-            self.profile_name = f"{profile['language']} · {profile['hotkey']}"
+            hotkey = profile["clipboard_hotkey"] if source == "clipboard" else profile["hotkey"]
+            label = "剪贴板" if source == "clipboard" else "截图 OCR"
+            self.profile_name = f"{profile['language']} · {hotkey} · {label}"
             self.question = self.code = self.error = ""
             self.index = self.reserved = 0
             self._log(f"开始：{self.profile_name}")
-        threading.Thread(target=self._generate, args=(token, profile, hwnd),
+        threading.Thread(target=self._generate, args=(token, profile, source),
                          daemon=True, name=f"round-{token}").start()
 
-    def _generate(self, token, profile, hwnd):
+    def _generate(self, token, profile, source):
         try:
-            key = self.credentials.get(profile["id"])
-            if not key:
-                raise ValueError("此方案尚未保存 API Key，请填写后保存")
-            image = self.ocr.capture()
             with self.lock:
                 if token != self.round_id or self.closed:
                     return
-                self.phase = "ocr"
-            question = self.ocr.recognize(image)
+            key = self.credentials.get(profile["id"])
+            if not key:
+                raise ValueError("此方案尚未保存 API Key，请填写后保存")
+            if source == "clipboard":
+                question = self.desktop.read_clipboard().replace("\r\n", "\n").replace("\r", "\n")
+                if not question.strip():
+                    raise ValueError("剪贴板中没有题目文字，请先手动选中题目并复制，再按剪贴板生成快捷键")
+            else:
+                image = self.ocr.capture()
+                with self.lock:
+                    if token != self.round_id or self.closed:
+                        return
+                    self.phase = "ocr"
+                question = self.ocr.recognize(image)
             with self.lock:
                 if token != self.round_id or self.closed:
                     return
                 self.question = question
                 self.phase = "generating"
-            code = self.generator(profile, key, question)
+            code = self.generator(profile, key, question, source)
             with self.lock:
                 if token != self.round_id or self.closed:
                     return
@@ -157,7 +177,7 @@ class Controller:
 
     def toggle_pause(self):
         with self.lock:
-            if self.phase not in ("capture", "ocr", "generating", "ready"):
+            if self.phase not in ("capture", "reading_clipboard", "ocr", "generating", "ready"):
                 return
             self.paused = not self.paused
             if self.paused:

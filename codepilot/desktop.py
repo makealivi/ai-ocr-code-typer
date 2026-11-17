@@ -81,6 +81,13 @@ class Desktop:
         self.user.GetAsyncKeyState.argtypes = [c.c_int]
         self.user.GetAsyncKeyState.restype = c.c_short
         self.user.OpenClipboard.argtypes = [w.HWND]
+        self.user.OpenClipboard.restype = w.BOOL
+        self.user.CloseClipboard.argtypes = []
+        self.user.CloseClipboard.restype = w.BOOL
+        self.user.GetClipboardData.argtypes = [w.UINT]
+        self.user.GetClipboardData.restype = w.HANDLE
+        self.user.IsClipboardFormatAvailable.argtypes = [w.UINT]
+        self.user.IsClipboardFormatAvailable.restype = w.BOOL
         self.user.SetClipboardData.argtypes = [w.UINT, w.HANDLE]
         self.user.SetClipboardData.restype = w.HANDLE
         self.kernel.GlobalAlloc.argtypes = [w.UINT, c.c_size_t]
@@ -123,12 +130,7 @@ class Desktop:
                 raise c.WinError(c.get_last_error())
             c.memmove(ptr, raw, len(raw))
             self.kernel.GlobalUnlock(handle)
-            for attempt in range(10):
-                if self.user.OpenClipboard(None):
-                    break
-                time.sleep(0.02)
-            else:
-                raise RuntimeError("剪贴板正被占用，请重新截图生成")
+            self._open_clipboard()
             try:
                 if not self.user.EmptyClipboard():
                     raise c.WinError(c.get_last_error())
@@ -140,6 +142,31 @@ class Desktop:
         finally:
             if not transferred:
                 self.kernel.GlobalFree(handle)
+
+    def _open_clipboard(self):
+        for attempt in range(10):
+            if self.user.OpenClipboard(None):
+                return
+            time.sleep(0.02)
+        raise RuntimeError("剪贴板正被占用，请稍后重新生成")
+
+    def read_clipboard(self):
+        self._open_clipboard()
+        try:
+            if not self.user.IsClipboardFormatAvailable(13):
+                raise ValueError("剪贴板中没有文字，请先手动选中题目并复制")
+            handle = self.user.GetClipboardData(13)
+            if not handle:
+                raise c.WinError(c.get_last_error())
+            ptr = self.kernel.GlobalLock(handle)
+            if not ptr:
+                raise c.WinError(c.get_last_error())
+            try:
+                return c.wstring_at(ptr)
+            finally:
+                self.kernel.GlobalUnlock(handle)
+        finally:
+            self.user.CloseClipboard()
 
     @staticmethod
     def key(vk=0, scan=0, flags=0):
@@ -204,6 +231,8 @@ class KeyboardService:
         candidates = [(config["pause_hotkey"], ("pause", None)),
                       (config["stop_hotkey"], ("stop", None))]
         candidates += [(p["hotkey"], ("capture", copy.deepcopy(p))) for p in config["profiles"]]
+        candidates += [(p["clipboard_hotkey"], ("clipboard", copy.deepcopy(p)))
+                       for p in config["profiles"] if p["clipboard_hotkey"]]
         installed = []
         try:
             for number, (text, action) in enumerate(candidates, 1):
@@ -224,6 +253,19 @@ class KeyboardService:
         for number in list(self.actions):
             self.desktop.user.UnregisterHotKey(None, number)
         self.actions.clear()
+
+    def _dispatch_hotkey(self, number):
+        if number not in self.actions:
+            return
+        action, profile = self.actions[number]
+        if action == "capture":
+            self.controller.capture(profile["id"], self.desktop.foreground(), profile=profile)
+        elif action == "clipboard":
+            self.controller.use_clipboard(profile["id"], self.desktop.foreground(), profile=profile)
+        elif action == "pause":
+            self.controller.toggle_pause()
+        elif action == "stop":
+            self.controller.stop_round()
 
     def apply(self, config):
         self._command("config", config)
@@ -262,15 +304,7 @@ class KeyboardService:
             timer = self.desktop.user.SetTimer(None, 0, 1000, None)
             while self.desktop.user.GetMessageW(c.byref(message), None, 0, 0) > 0:
                 if message.message == 0x0312:
-                    if message.wParam not in self.actions:
-                        continue
-                    action, profile = self.actions[message.wParam]
-                    if action == "capture":
-                        self.controller.capture(profile["id"], self.desktop.foreground(), profile=profile)
-                    elif action == "pause":
-                        self.controller.toggle_pause()
-                    else:
-                        self.controller.stop_round()
+                    self._dispatch_hotkey(message.wParam)
                 elif message.message == 0x8001:
                     kind, new, done, result = self.commands.get()
                     self._unregister()

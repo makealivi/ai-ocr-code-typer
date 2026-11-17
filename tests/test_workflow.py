@@ -53,6 +53,9 @@ class FakeDesktop:
     def clipboard(self, text):
         self.copied = text
 
+    def read_clipboard(self):
+        return self.copied
+
     def send_char(self, text):
         self.sent.append(text)
 
@@ -345,7 +348,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_profile_language_and_endpoint_are_snapshotted(self):
         captured = []
-        self.controller.generator = lambda p,k,q: (captured.append((p,k,q)) or "code")
+        self.controller.generator = lambda p,k,q,s: (captured.append((p,k,q,s)) or "code")
         value = self.config.get()
         value["profiles"][0].update(language="Python 3", model="my-model", base_url="http://localhost:8000")
         self.config.save(value)
@@ -456,6 +459,16 @@ class HTTPTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             self.req("/api/config", {"config":value,"keys":{}})
         self.assertEqual(self.config.path.read_text(),old)
+
+    def test_clipboard_hotkey_survives_http_save_and_reload(self):
+        config = self.req("/api/config")
+        self.assertEqual(config["profiles"][0]["clipboard_hotkey"], "F2")
+        for hotkey in ("F6", ""):
+            config["profiles"][0]["clipboard_hotkey"] = hotkey
+            response = self.req("/api/config", {"config": config, "keys": {}})
+            self.assertEqual(response["profiles"][0]["clipboard_hotkey"], hotkey)
+            self.assertEqual(self.req("/api/config")["profiles"][0]["clipboard_hotkey"], hotkey)
+            self.assertEqual(ConfigStore(self.config.path).get()["profiles"][0]["clipboard_hotkey"], hotkey)
 
 
 class APITests(unittest.TestCase):

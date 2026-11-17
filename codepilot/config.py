@@ -10,7 +10,7 @@ DEFAULT = {
     "pause_hotkey": "F8",
     "stop_hotkey": "F9",
     "profiles": [{
-        "id": "cpp", "hotkey": "F1",
+        "id": "cpp", "hotkey": "F1", "clipboard_hotkey": "F2",
         "language": "C++17", "base_url": "https://api.deepseek.com",
         "model": "deepseek-flash",
     }],
@@ -63,8 +63,10 @@ def validate(config):
         if url.scheme not in ("https", "http") or not url.netloc or url.username or url.password:
             raise ValueError("API 地址应为 http:// 或 https:// 开头的服务地址")
         bindings.append(parse_hotkey(p["hotkey"]))
+        if p["clipboard_hotkey"]:
+            bindings.append(parse_hotkey(p["clipboard_hotkey"]))
     if len(bindings) != len(set(bindings)):
-        raise ValueError("截图、暂停和结束快捷键不能重复")
+        raise ValueError("截图、剪贴板、暂停和结束快捷键不能重复")
 
 
 class ConfigStore:
@@ -75,7 +77,18 @@ class ConfigStore:
         if self.path.exists():
             self.value = json.loads(self.path.read_text(encoding="utf-8"))
             self.value.pop("startup_url", None)
+            used = {parse_hotkey(self.value[k]) for k in ("pause_hotkey", "stop_hotkey")}
             for profile in self.value["profiles"]:
+                used.add(parse_hotkey(profile["hotkey"]))
+                if profile.get("clipboard_hotkey"):
+                    used.add(parse_hotkey(profile["clipboard_hotkey"]))
+            for profile in self.value["profiles"]:
+                if "clipboard_hotkey" not in profile:
+                    profile["clipboard_hotkey"] = next(
+                        (f"F{number}" for number in range(2, 25)
+                         if number != 12 and parse_hotkey(f"F{number}") not in used), "")
+                    if profile["clipboard_hotkey"]:
+                        used.add(parse_hotkey(profile["clipboard_hotkey"]))
                 for field in ("capture", "monitor", "region", "name"):
                     profile.pop(field, None)
             validate(self.value)

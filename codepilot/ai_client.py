@@ -33,11 +33,13 @@ def clean_code(content):
     if match:
         text = match.group(1).rstrip("\n")
     if not text:
-        raise ApiError("模型未返回代码，请检查模型配置后重新截图")
+        raise ApiError("模型未返回代码，请检查模型配置后重新生成")
     return text
 
 
-def generate(profile, api_key, question):
+def generate(profile, api_key, question, source="screenshot"):
+    source_instruction = ("题目来自 OCR，请结合上下文识别字符；" if source == "screenshot"
+                          else "题目来自用户手动复制，请保留原文中的函数接口和符号；")
     result = request(profile["base_url"], api_key, "/chat/completions", {
         "model": profile["model"], "stream": False,
         "messages": [
@@ -46,7 +48,7 @@ def generate(profile, api_key, question):
                 "先判断题型：函数题只实现题目要求的函数及必要的辅助定义，严格保持函数签名，"
                 "不要重复题目已提供的类型、裁判程序或 main；完整编程题返回完整可运行程序。"
                 "只输出源代码，不输出 Markdown 代码围栏、讲解或注释。"
-                "题目来自 OCR，请结合上下文识别字符；保留输入输出格式和题目约束。"
+                + source_instruction + "保留输入输出格式和题目约束。"
             )},
             {"role": "user", "content": question},
         ],

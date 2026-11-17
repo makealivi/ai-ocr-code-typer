@@ -31,7 +31,7 @@ class WebApp:
         value = body["config"]
         # Only known configuration fields reach disk; keys never enter config.json.
         config = {k: value[k] for k in ("pause_hotkey", "stop_hotkey")}
-        fields = ("id", "hotkey", "language", "base_url", "model")
+        fields = ("id", "hotkey", "clipboard_hotkey", "language", "base_url", "model")
         config["profiles"] = [{k: p[k] for k in fields} for p in value["profiles"]]
         validate(config)
         keys = body.get("keys", {})
