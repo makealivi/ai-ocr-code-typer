@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 import urllib.error
 import urllib.request
@@ -13,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from codepilot import ai_client
 from codepilot.config import ConfigStore, DEFAULT, validate
 from codepilot.controller import Controller
-from codepilot.desktop import INPUT, KeyRouter
+from codepilot.desktop import INPUT, KBDLLHOOKSTRUCT, KeyboardService, KeyRouter
 from codepilot.web_server import WebApp, create_server
 
 
@@ -92,6 +93,171 @@ class WorkflowTests(unittest.TestCase):
         until(lambda: self.controller.phase == "done")
         self.assertEqual("".join(self.desktop.sent), code)
         self.assertFalse(self.controller.enqueue_letter(42))
+
+    def block_next_character(self, error=None):
+        started, release = threading.Event(), threading.Event()
+        original_send = self.desktop.send_char
+        def send(text):
+            if not started.is_set():
+                started.set()
+                if not release.wait(3):
+                    raise TimeoutError("Test did not release character output")
+                if error is not None:
+                    raise error
+            original_send(text)
+        self.desktop.send_char = send
+        return started, release
+
+    def test_fast_physical_keys_are_swallowed_while_character_output_is_busy(self):
+        code = "array.data_[i] = array.data_[i - 1];\n" * 40
+        self.controller.generator = lambda *args: code
+        self.ready()
+        started, release = self.block_next_character()
+        self.desktop.user = SimpleNamespace(CallNextHookEx=lambda *args: 0)
+        self.desktop.is_config_window = lambda hwnd: False
+        keyboard = object.__new__(KeyboardService)
+        keyboard.desktop = self.desktop
+        keyboard.controller = self.controller
+        keyboard.router = KeyRouter()
+        keyboard.modifier_keys = set()
+        def press(vk):
+            event = KBDLLHOOKSTRUCT(vkCode=vk)
+            return (keyboard._hook(0, 0x100, ctypes.addressof(event)),
+                    keyboard._hook(0, 0x101, ctypes.addressof(event)))
+        self.assertEqual(press(65), (1, 1))
+        results, finished = [], threading.Event()
+        def burst():
+            for i in range(len(code) + 100):
+                results.append(press(65 + i % 26))
+            finished.set()
+        thread = threading.Thread(target=burst, daemon=True)
+        try:
+            self.assertTrue(started.wait(1))
+            thread.start()
+            self.assertTrue(finished.wait(0.5), "Keyboard hook waited for character output")
+            self.assertEqual(results, [(1, 1)] * (len(code) + 100))
+        finally:
+            release.set()
+            if thread.ident is not None:
+                thread.join(2)
+        until(lambda: self.controller.phase == "done")
+        self.assertEqual("".join(self.desktop.sent), code)
+
+    def test_pause_during_send_discards_queue_and_resume_does_not_repeat_character(self):
+        self.ready()
+        code = self.controller.code
+        started, release = self.block_next_character()
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            self.controller.enqueue_letter(42)
+            self.controller.enqueue_letter(42)
+            self.controller.toggle_pause()
+            self.assertFalse(self.controller.enqueue_letter(42))
+        finally:
+            release.set()
+        until(lambda: self.controller.index == 1)
+        self.assertTrue(self.controller.paused)
+        self.assertEqual(self.desktop.sent, [code[0]])
+        self.controller.toggle_pause()
+        for _ in code[1:]:
+            self.controller.enqueue_letter(42)
+        until(lambda: self.controller.phase == "done")
+        self.assertEqual("".join(self.desktop.sent), code)
+
+    def test_repeated_pause_resume_before_send_finishes_preserves_next_position(self):
+        self.ready()
+        code = self.controller.code
+        started, release = self.block_next_character()
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            for _ in range(2):
+                self.controller.toggle_pause()
+                self.controller.toggle_pause()
+                self.controller.enqueue_letter(42)
+            for _ in code[2:]:
+                self.controller.enqueue_letter(42)
+        finally:
+            release.set()
+        until(lambda: self.controller.phase == "done")
+        self.assertEqual("".join(self.desktop.sent), code)
+
+    def test_stop_during_send_discards_remaining_characters(self):
+        self.ready()
+        code = self.controller.code
+        started, release = self.block_next_character()
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            for _ in code[1:]:
+                self.controller.enqueue_letter(42)
+            self.controller.stop_round()
+            self.assertFalse(self.controller.enqueue_letter(42))
+        finally:
+            release.set()
+        until(lambda: self.controller._inflight is None)
+        self.assertEqual(self.desktop.sent, [code[0]])
+        self.assertEqual(self.controller.phase, "idle")
+
+    def test_old_send_completion_cannot_advance_new_round(self):
+        self.ready()
+        first_char = self.controller.code[0]
+        started, release = self.block_next_character()
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            self.controller.stop_round()
+            self.controller.generator = lambda *args: "new"
+            self.ready()
+        finally:
+            release.set()
+        until(lambda: self.controller._inflight is None)
+        self.assertEqual(self.controller.index, 0)
+        self.assertEqual(self.controller.phase, "ready")
+        for _ in "new":
+            self.controller.enqueue_letter(42)
+        until(lambda: self.controller.phase == "done")
+        self.assertEqual("".join(self.desktop.sent), first_char + "new")
+
+    def test_send_failure_pauses_and_retry_starts_at_unsent_character(self):
+        self.ready()
+        code = self.controller.code
+        started, release = self.block_next_character(RuntimeError("send failed"))
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            for _ in code[1:]:
+                self.controller.enqueue_letter(42)
+        finally:
+            release.set()
+        until(lambda: self.controller.paused)
+        self.assertEqual(self.controller.index, 0)
+        self.assertEqual(self.desktop.sent, [])
+        self.assertEqual(self.controller.error, "send failed")
+        self.controller.toggle_pause()
+        for _ in code:
+            self.controller.enqueue_letter(42)
+        until(lambda: self.controller.phase == "done")
+        self.assertEqual("".join(self.desktop.sent), code)
+
+    def test_old_send_failure_cannot_pause_new_round(self):
+        self.ready()
+        started, release = self.block_next_character(RuntimeError("old send failed"))
+        self.controller.enqueue_letter(42)
+        try:
+            self.assertTrue(started.wait(1))
+            self.controller.stop_round()
+            self.controller.generator = lambda *args: "new"
+            self.ready()
+            for _ in "new":
+                self.controller.enqueue_letter(42)
+        finally:
+            release.set()
+        until(lambda: self.controller.phase == "done")
+        self.assertFalse(self.controller.paused)
+        self.assertEqual(self.controller.error, "")
+        self.assertEqual("".join(self.desktop.sent), "new")
 
     def test_pause_preserves_position_and_stop_ends_input(self):
         self.ready()

@@ -24,6 +24,7 @@ class Controller:
         self.code = ""
         self.index = 0
         self.reserved = 0
+        self._inflight = None
         self.error = ""
         self.history = deque(maxlen=30)
         self.outputs = queue.Queue()
@@ -48,6 +49,10 @@ class Controller:
     def _invalidate_output(self):
         self.epoch += 1
         self.reserved = self.index
+        # A character already handed to the desktop must not be reserved again
+        # when pause/resume invalidates the remaining queued characters.
+        if self._inflight is not None and self._inflight[0] == self.round_id:
+            self.reserved = self._inflight[1] + 1
         while True:
             try:
                 self.outputs.get_nowait()
@@ -117,24 +122,38 @@ class Controller:
             if item is None:
                 return
             token, epoch, position, hwnd = item
+            foreground = self.desktop.foreground()
             with self.lock:
                 if token != self.round_id or epoch != self.epoch or self.phase != "ready" or self.paused:
                     continue
-                if self.desktop.foreground() != hwnd:
+                if foreground != hwnd:
                     self.paused = True
                     self._invalidate_output()
                     self._log("窗口已切换，输入暂停；按暂停／恢复快捷键继续")
                     continue
-                try:
-                    self.desktop.send_char(self.code[position])
-                    self.index = position + 1
-                    if self.index == len(self.code):
-                        self.phase = "done"
-                        self._log("本轮输入完成，已恢复正常打字")
-                except Exception as error:
+                char = self.code[position]
+                self._inflight = (token, position)
+            # SendInput can wait for the keyboard-hook thread. That thread must
+            # remain able to acquire our lock and suppress physical keys.
+            try:
+                self.desktop.send_char(char)
+            except Exception as error:
+                with self.lock:
+                    self._inflight = None
+                    if token != self.round_id:
+                        continue
                     self.paused = True
                     self._invalidate_output()
                     self.report_error(str(error))
+                continue
+            with self.lock:
+                self._inflight = None
+                if token != self.round_id:
+                    continue
+                self.index = position + 1
+                if self.index == len(self.code):
+                    self.phase = "done"
+                    self._log("本轮输入完成，已恢复正常打字")
 
     def toggle_pause(self):
         with self.lock:
