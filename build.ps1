@@ -9,7 +9,7 @@ $taskBackup = Join-Path $PSScriptRoot ('build\data-backup-' + [guid]::NewGuid().
 if (Test-Path -LiteralPath $taskData) {
     Copy-Item -LiteralPath $taskData -Destination $taskBackup -Recurse
 }
-& $taskPython -m PyInstaller --noconfirm --windowed --disable-windowed-traceback --onedir --name 启动 --distpath release --workpath build --add-data 'web;web' --collect-all rapidocr_onnxruntime --collect-binaries onnxruntime --collect-data onnxruntime --collect-binaries pyclipper --collect-binaries shapely --exclude-module matplotlib --exclude-module pandas --exclude-module scipy --exclude-module torch --exclude-module tensorflow --exclude-module IPython --exclude-module pytest main.py
+& $taskPython -m PyInstaller --noconfirm --windowed --disable-windowed-traceback --onedir --name 启动 --distpath release --workpath build --add-data 'web;web' --add-data 'assets;assets' --collect-all rapidocr_onnxruntime --collect-binaries onnxruntime --collect-data onnxruntime --collect-binaries pyclipper --collect-binaries shapely --exclude-module matplotlib --exclude-module pandas --exclude-module scipy --exclude-module torch --exclude-module tensorflow --exclude-module IPython --exclude-module pytest main.py
 if ($LASTEXITCODE -ne 0) { throw '打包失败，请查看构建输出。' }
 if (Test-Path -LiteralPath $taskBackup) {
     Copy-Item -LiteralPath $taskBackup -Destination $taskData -Recurse

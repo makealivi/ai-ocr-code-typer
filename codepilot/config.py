@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 
 DEFAULT = {
+    "show_tray_icon": False,
     "pause_hotkey": "F8",
     "stop_hotkey": "F9",
     "profiles": [{
@@ -47,6 +48,8 @@ def parse_hotkey(text):
 def validate(config):
     if not isinstance(config, dict):
         raise ValueError("配置必须是一个对象")
+    if not isinstance(config["show_tray_icon"], bool):
+        raise ValueError("显示微信样式托盘图标必须为开或关")
     profiles = config["profiles"]
     if not profiles:
         raise ValueError("请至少保留一个方案")
@@ -76,6 +79,7 @@ class ConfigStore:
         self.value = copy.deepcopy(DEFAULT)
         if self.path.exists():
             self.value = json.loads(self.path.read_text(encoding="utf-8"))
+            self.value.setdefault("show_tray_icon", False)
             self.value.pop("startup_url", None)
             used = {parse_hotkey(self.value[k]) for k in ("pause_hotkey", "stop_hotkey")}
             for profile in self.value["profiles"]:

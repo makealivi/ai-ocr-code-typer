@@ -470,6 +470,16 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.req("/api/config")["profiles"][0]["clipboard_hotkey"], hotkey)
             self.assertEqual(ConfigStore(self.config.path).get()["profiles"][0]["clipboard_hotkey"], hotkey)
 
+    def test_tray_option_saves_reloads_and_updates_controller_immediately(self):
+        config = self.req("/api/config")
+        self.assertFalse(config["show_tray_icon"])
+        for enabled in (True, False):
+            config["show_tray_icon"] = enabled
+            response = self.req("/api/config", {"config": config, "keys": {}})
+            self.assertEqual(response["show_tray_icon"], enabled)
+            self.assertEqual(self.controller.tray_enabled, enabled)
+            self.assertEqual(ConfigStore(self.config.path).get()["show_tray_icon"], enabled)
+
 
 class APITests(unittest.TestCase):
     def test_real_http_request_contains_language_and_untruncated_ocr(self):

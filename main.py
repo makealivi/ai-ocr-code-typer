@@ -16,6 +16,7 @@ from codepilot.config import ConfigStore, DEFAULT
 from codepilot.controller import Controller
 from codepilot.credentials import Credentials
 from codepilot.desktop import Desktop, KeyboardService
+from codepilot.tray import TrayService
 from codepilot.web_server import WebApp, create_server
 
 
@@ -96,6 +97,8 @@ def main(argv=None):
     address = f"http://127.0.0.1:{server.server_port}/#{app.token}"
     runtime.write_text(json.dumps({"url": address}), encoding="utf-8")
     keyboard = None
+    tray = TrayService(controller, ASSETS / "assets" / "tray", name,
+                       lambda: webbrowser.open(address), exit_event.set)
     try:
         if not args.no_hooks:
             keyboard = KeyboardService(desktop, controller)
@@ -105,6 +108,10 @@ def main(argv=None):
             except OSError as error:
                 controller.report_error(f"键盘监听启动失败：{error}")
         threading.Thread(target=server.serve_forever, daemon=True, name="local-web").start()
+        try:
+            tray.start()
+        except OSError as error:
+            controller.report_error(f"托盘提示启动失败：{error}")
         if not args.no_browser:
             webbrowser.open(address)
         log.info("Started local configuration server on port %s", server.server_port)
@@ -113,6 +120,7 @@ def main(argv=None):
         pass
     finally:
         controller.close()
+        tray.stop()
         if keyboard:
             keyboard.stop()
         server.shutdown()

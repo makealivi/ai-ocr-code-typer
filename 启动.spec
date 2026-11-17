@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_dynamic_libs
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('web', 'web')]
+datas = [('web', 'web'), ('assets', 'assets')]
 binaries = []
 hiddenimports = []
 datas += collect_data_files('onnxruntime')

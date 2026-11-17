@@ -28,6 +28,10 @@
             <label>暂停 / 恢复<input id="pause-hotkey" class="hotkey" placeholder="F8" autocomplete="off"><small>暂停后可以正常打字</small></label>
             <label>结束本轮<input id="stop-hotkey" class="hotkey" placeholder="F9" autocomplete="off"><small>结束输入，后台继续待命</small></label>
           </div>
+          <div class="tray-settings">
+            <label class="tray-option"><input id="show-tray-icon" type="checkbox" aria-describedby="tray-hint">显示微信样式托盘图标</label>
+            <small id="tray-hint">代码就绪时图标闪烁。默认关闭，保存后立即生效。<br>开启显示微信样式托盘图标选项后，请将图标固定到底栏可见区。</small>
+          </div>
           <p class="local-note">配置保存在本机。<br>关闭此页面后，快捷键继续生效。</p>
         </aside>
         <section class="editor" aria-labelledby="profile-title">
@@ -41,7 +45,7 @@
               <label>API Key<span class="key-input"><input id="api-key" type="password" autocomplete="new-password" placeholder="填写 API Key"><button id="show-key" type="button" class="text-button">显示</button></span><small id="key-hint">保存在 Windows 凭据管理器中</small><span class="check-row"><input id="delete-key" type="checkbox">清除已保存的密钥</span></label>
               <label>DeepSeek 模型<span class="model-input"><input id="model" list="models" required placeholder="deepseek-flash"><button id="refresh-models" type="button">刷新列表</button></span><datalist id="models"></datalist><small>可从列表选择，也可直接填写模型 ID</small></label>
             </div>
-            <div class="save-row"><span id="save-state">修改后保存，下一轮生效</span><button id="save" class="primary" type="submit">保存全部配置</button></div>
+            <div class="save-row"><span id="save-state">修改后请保存配置</span><button id="save" class="primary" type="submit">保存全部配置</button></div>
           </form>
         </section>
       </div>

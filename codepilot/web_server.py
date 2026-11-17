@@ -30,7 +30,7 @@ class WebApp:
     def save(self, body):
         value = body["config"]
         # Only known configuration fields reach disk; keys never enter config.json.
-        config = {k: value[k] for k in ("pause_hotkey", "stop_hotkey")}
+        config = {k: value[k] for k in ("pause_hotkey", "stop_hotkey", "show_tray_icon")}
         fields = ("id", "hotkey", "clipboard_hotkey", "language", "base_url", "model")
         config["profiles"] = [{k: p[k] for k in fields} for p in value["profiles"]]
         validate(config)
@@ -59,6 +59,7 @@ class WebApp:
                 if self.keyboard:
                     self.keyboard.apply(previous)
                 raise
+            self.controller.set_tray_enabled(config["show_tray_icon"])
         return self.public_config()
 
     def dispatch(self, path, body):

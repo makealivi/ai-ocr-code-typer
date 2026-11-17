@@ -30,6 +30,11 @@ class Controller:
         self.history = deque(maxlen=30)
         self.outputs = queue.Queue()
         self.closed = False
+        self.notice_pending = False
+        self.tray_enabled = config.get()["show_tray_icon"]
+        self.tray_events = queue.SimpleQueue()
+        self._last_tray_state = None
+        self._publish_tray()
         threading.Thread(target=self._output_worker, daemon=True, name="character-output").start()
 
     def snapshot(self):
@@ -41,6 +46,26 @@ class Controller:
 
     def _log(self, message):
         self.history.appendleft({"time": time.strftime("%H:%M:%S"), "message": message})
+        self._publish_tray()
+
+    def _publish_tray(self):
+        # Called with the controller lock held; no UI work on the hook/output threads.
+        state = {"round": self.round_id, "phase": self.phase, "paused": self.paused,
+                 "pending": self.notice_pending, "closed": self.closed, "enabled": self.tray_enabled}
+        if state != self._last_tray_state:
+            self._last_tray_state = state
+            self.tray_events.put(state)
+
+    def set_tray_enabled(self, enabled):
+        with self.lock:
+            self.tray_enabled = enabled
+            self._publish_tray()
+
+    def acknowledge_notice(self, round_id):
+        with self.lock:
+            if round_id == self.round_id and self.notice_pending:
+                self.notice_pending = False
+                self._publish_tray()
 
     def report_error(self, message):
         with self.lock:
@@ -79,6 +104,7 @@ class Controller:
             self.source = source
             self.phase = "reading_clipboard" if source == "clipboard" else "capture"
             self.paused = False
+            self.notice_pending = False
             hotkey = profile["clipboard_hotkey"] if source == "clipboard" else profile["hotkey"]
             label = "剪贴板" if source == "clipboard" else "截图 OCR"
             self.profile_name = f"{profile['language']} · {hotkey} · {label}"
@@ -106,12 +132,14 @@ class Controller:
                     if token != self.round_id or self.closed:
                         return
                     self.phase = "ocr"
+                    self._publish_tray()
                 question = self.ocr.recognize(image)
             with self.lock:
                 if token != self.round_id or self.closed:
                     return
                 self.question = question
                 self.phase = "generating"
+                self._publish_tray()
             code = self.generator(profile, key, question, source)
             with self.lock:
                 if token != self.round_id or self.closed:
@@ -119,6 +147,7 @@ class Controller:
                 self.desktop.clipboard(code)
                 self.code = code
                 self.phase = "ready"
+                self.notice_pending = bool(code)
                 self._log(f"代码就绪，共 {len(code)} 个字符")
         except Exception as error:
             with self.lock:
@@ -171,6 +200,9 @@ class Controller:
                 if token != self.round_id:
                     continue
                 self.index = position + 1
+                if self.notice_pending:
+                    self.notice_pending = False
+                    self._publish_tray()
                 if self.index == len(self.code):
                     self.phase = "done"
                     self._log("本轮输入完成，已恢复正常打字")
@@ -190,11 +222,14 @@ class Controller:
             self._invalidate_output()
             self.phase = "idle"
             self.paused = False
+            self.notice_pending = False
             self._log("已结束本轮，恢复正常打字")
 
     def close(self):
         with self.lock:
             self.closed = True
+            self.notice_pending = False
             self.round_id += 1
             self._invalidate_output()
             self.outputs.put(None)
+            self._publish_tray()

@@ -28,7 +28,7 @@ function changed() {
 }
 function current() { return config.profiles[selected]; }
 function acceptConfig(value) {
-  if (value.profiles.some(p => typeof p.clipboard_hotkey !== 'string')) {
+  if (typeof value.show_tray_icon !== 'boolean' || value.profiles.some(p => typeof p.clipboard_hotkey !== 'string')) {
     throw new Error('后台版本尚未更新，请点击“退出程序”，重新启动后再保存配置。');
   }
   return value;
@@ -40,6 +40,7 @@ function collect() {
   if ($('delete-key').checked) clearedKeys.add(p.id); else clearedKeys.delete(p.id);
   config.pause_hotkey = $('pause-hotkey').value.trim();
   config.stop_hotkey = $('stop-hotkey').value.trim();
+  config.show_tray_icon = $('show-tray-icon').checked;
 }
 function renderProfiles() {
   $('profiles').replaceChildren();
@@ -61,6 +62,7 @@ function render() {
   for (const [field, id] of Object.entries({hotkey:'hotkey',clipboard_hotkey:'clipboard-hotkey',language:'language',base_url:'base-url',model:'model'})) $(id).value = p[field];
   $('pause-hotkey').value = config.pause_hotkey;
   $('stop-hotkey').value = config.stop_hotkey;
+  $('show-tray-icon').checked = config.show_tray_icon;
   $('api-key').value = keyDrafts[p.id] || '';
   $('api-key').type = 'password'; $('show-key').textContent = '显示';
   $('api-key').placeholder = p.has_key ? '已保存；留空保留原密钥' : '填写 API Key';
@@ -98,6 +100,7 @@ setInterval(() => {
 $('settings').addEventListener('input', changed);
 $('settings').addEventListener('change', changed);
 document.querySelectorAll('.global-settings input').forEach(input => input.addEventListener('input', changed));
+$('show-tray-icon').addEventListener('change', changed);
 $('show-key').onclick = () => { const hidden = $('api-key').type === 'password'; $('api-key').type = hidden ? 'text' : 'password'; $('show-key').textContent = hidden ? '隐藏' : '显示'; };
 $('clear-clipboard-hotkey').onclick = () => { $('clipboard-hotkey').value = ''; changed(); };
 $('add-profile').onclick = () => {
@@ -122,7 +125,7 @@ $('settings').onsubmit = async event => {
   try {
     config = acceptConfig(await api('config', {config,keys}));
     for (const key of Object.keys(keyDrafts)) delete keyDrafts[key]; clearedKeys.clear();
-    dirty = false; $('save-state').textContent = '已保存，下一轮生效'; render(); notice('全部配置已保存，快捷键已更新');
+    dirty = false; $('save-state').textContent = '已保存'; render(); notice('全部配置已保存');
   } catch (error) { notice(error.message,true); }
   finally { busy = false; $('save').disabled = false; $('save').textContent = '保存全部配置'; }
 };

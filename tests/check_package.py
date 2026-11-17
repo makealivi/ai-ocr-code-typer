@@ -35,6 +35,7 @@ try:
     assert config["profiles"][0]["model"] == "deepseek-flash"
     assert config["profiles"][0]["hotkey"] == "F1"
     assert config["pause_hotkey"] == "F8" and config["stop_hotkey"] == "F9"
+    assert isinstance(config["show_tray_icon"], bool)
     assert "startup_url" not in config and "name" not in config["profiles"][0]
     assert config["profiles"][0]["has_key"], "Existing key migration must survive packaging"
     assert not request("status")["error"], request("status")["error"]
@@ -43,9 +44,19 @@ try:
         html = response.read().decode("utf-8")
     assert 'id="capture"' not in html and 'id="monitor"' not in html
     assert 'id="startup-url"' not in html and 'id="name"' not in html
+    assert 'id="show-tray-icon"' in html
+    icons = EXE.parent / "_internal" / "assets" / "tray"
+    assert (icons / "normal.ico").exists() and (icons / "dim.ico").exists()
+    assert not (icons / "ready.ico").exists()
     request("recording", {"active": True})
     request("recording", {"active": False})
     request("config", {"config": config, "keys": {}})
+    original_tray_setting = config["show_tray_icon"]
+    for enabled in (True, False, original_tray_setting):
+        config["show_tray_icon"] = enabled
+        assert request("config", {"config": config, "keys": {}})["show_tray_icon"] == enabled
+        assert request("config")["show_tray_icon"] == enabled
+        assert not request("status")["error"], request("status")["error"]
     duplicate = subprocess.run([str(EXE), "--no-browser"], timeout=10, creationflags=0x08000000)
     assert duplicate.returncode == 0
     assert json.loads(runtime.read_text(encoding="utf-8"))["url"] == address
@@ -62,6 +73,6 @@ ocr = json.loads((ocr_data / "ocr-check.json").read_text(encoding="utf-8"))
 assert "两数之和" in ocr["text"]
 report = {"gui_executable": True, "startup": True, "hotkeys": True,
           "credentials_migrated": True, "single_instance": True,
-          "configuration": True, "shutdown": True, "bundled_ocr": True}
+          "configuration": True, "optional_tray": True, "shutdown": True, "bundled_ocr": True}
 (ROOT / ".qa" / "package-check.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 print("Release startup, GUI subsystem, hotkeys, credentials, single instance, configuration, shutdown and bundled OCR passed.")

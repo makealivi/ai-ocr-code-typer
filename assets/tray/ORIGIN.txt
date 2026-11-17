@@ -1,0 +1,5 @@
+wechat-source.ico: extracted unchanged from the IDI_ICON1 / RT_GROUP_ICON resource
+of the locally installed Tencent Weixin executable E:\Weixin\Weixin.exe.
+WeChat / Weixin artwork belongs to Tencent; it is used here as requested by the user.
+normal.ico, dim.ico: generated from that source by tools/build_tray_icons.py.
+Both frames contain only the WeChat artwork, with no numeric badge or red dot.
